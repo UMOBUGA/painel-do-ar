@@ -8,74 +8,70 @@
 
 ---
 
-## O problema
+## O problema que isso resolve
 
-Os dados de qualidade do ar existem e são públicos, mas chegam ao cidadão como uma concentração de PM2,5 em µg/m³ — um número que não responde a pergunta que a pessoa realmente tem: _dá para correr no parque hoje?_
+Os dados de qualidade do ar já existem e já são públicos — o problema nunca foi acesso, foi tradução. Eles chegam para o cidadão como uma concentração de PM2,5 em µg/m³, e ninguém decide se vai correr no parque olhando para um número desses. A pergunta real é bem mais simples: _dá para sair hoje ou não?_
 
-Este painel converte concentração em índice, índice em faixa, e faixa em uma frase acionável. O resto da tela existe para justificar essa frase.
+Então o painel faz o trabalho de tradução: pega a concentração, converte em índice, o índice numa faixa (boa, moderada, ruim...) e a faixa numa frase que já responde à pergunta. Todo o resto da tela — o gráfico, a tabela, os cartões de poluente — existe para justificar essa frase, não para substituí-la.
 
-## Decisões técnicas
+## Como ele funciona, por dentro
 
-Cada escolha aqui tem um porquê. Se você está lendo isto numa entrevista, estes são os pontos que valem discussão.
+Ao abrir o site, a cidade selecionada vem da URL (`?cidade=curitiba`), não de um roteador — é só um parâmetro que o próprio navegador já sabe compartilhar e voltar atrás. A partir daí o app tenta buscar a leitura mais recente direto na Open-Meteo. Se der certo, mostra o número e guarda uma cópia no IndexedDB do navegador. Se a rede falhar — sem conexão, API fora do ar — ele recorre a essa cópia salva e avisa que o dado é antigo, em vez de simplesmente mostrar uma tela de erro. A ideia por trás disso é simples: um dado de uma hora atrás ainda é mais útil do que nenhum dado.
 
-### O índice é código puro e testado à parte
+Só uma coisa não vem direto da Open-Meteo: o ranking das 27 capitais e a tendência de 30 dias. Comparar todas as cidades ao vivo custaria 27 requisições paralelas a cada visita, então essa parte roda uma vez por dia num cron que grava os resultados num banco Postgres — e é o único momento em que este projeto realmente precisa de um servidor.
 
-A conversão de concentração para IQA ([`src/lib/aqi.ts`](src/lib/aqi.ts)) é a regra de negócio do projeto. Ela não importa React, não faz I/O e tem 11 testes cobrindo limites de faixa, interpolação, saturação e os vãos que a tabela da EPA deixa entre faixas (9,05 µg/m³ de PM2,5 não pertence a nenhuma).
+## Decisões que valem explicar
 
-Ausência de leitura devolve `null`, nunca `0`. Um zero silencioso vira "qualidade boa" na tela — é o tipo de bug que só aparece em produção, num dia em que a estação sai do ar.
+### Ausência de leitura nunca é zero
 
-### Offline-first com IndexedDB, não localStorage
+A conversão de concentração para índice ([`src/lib/aqi.ts`](src/lib/aqi.ts)) é código puro — sem React, sem chamada de rede — justamente para poder testar as faixas de perto: os limites, a interpolação entre eles, os vãos que a tabela da EPA deixa (9,05 µg/m³ de PM2,5, por exemplo, não cai em faixa nenhuma). Onze testes cobrem isso.
 
-Uma série horária de uma cidade passa de 100 KB. O `localStorage` é síncrono e trava a thread principal, justamente enquanto a lista virtualizada está rolando. O IndexedDB ([`src/lib/db.ts`](src/lib/db.ts)) é assíncrono e tem cota maior.
+Uma regra guia tudo aqui: quando não há leitura, a função devolve `null`, nunca `0`. Um zero silencioso viraria "qualidade boa" na tela, e esse é exatamente o tipo de bug que só aparece em produção — no dia em que uma estação sai do ar.
 
-O fluxo: a rede é tentada primeiro; se falhar e houver cache, o cache aparece com um aviso de "dados salvos há X min" em vez de uma tela de erro. **Dado antigo é mais útil que dado nenhum** — a tela de erro só aparece quando não existe nem uma coisa nem outra.
+### Por que IndexedDB e não localStorage
 
-Toda operação de cache é envolvida em `try/catch` e falha em silêncio. Aba anônima no Safari, cota estourada e storage bloqueado por política corporativa são casos reais; nenhum deles pode derrubar a tela, porque o cache é otimização e não requisito.
+Uma série de uma cidade passa fácil de 100 KB, e `localStorage` é síncrono: ele travaria a thread principal bem na hora em que a lista virtualizada está rolando na tela. O IndexedDB ([`src/lib/db.ts`](src/lib/db.ts)) resolve isso por ser assíncrono e ter uma cota bem maior.
 
-### A faixa de 48 horas é navegável pelo teclado
+Toda leitura e escrita nesse cache está dentro de um `try/catch` que falha em silêncio. Aba anônima do Safari, cota estourada, storage bloqueado por política de empresa — são casos reais, e nenhum deles pode derrubar a tela. O cache aqui é uma otimização, não um requisito.
 
-O elemento de assinatura ([`src/components/HourStrip.tsx`](src/components/HourStrip.tsx)) são 48 barras, uma por hora, com cor da faixa e altura pelo valor. Cada barra é um `<button>` de verdade.
+### A faixa de 48 horas dá para navegar só com o teclado
 
-Quarenta e oito paradas de `Tab` seriam hostis, então o componente usa **roving tabindex**: só a barra selecionada entra na ordem de foco, e as setas percorrem o resto — o mesmo padrão de um grupo de rádio. `Home` e `End` vão para as pontas, `PageUp`/`PageDown` andam de 6 em 6. Seis testes cobrem essa navegação.
+O elemento mais reconhecível do painel ([`src/components/HourStrip.tsx`](src/components/HourStrip.tsx)) são 48 barrinhas, uma por hora, coloridas pela faixa e com altura proporcional ao índice — dá para ver de relance se o ar piorou de madrugada ou no fim da tarde. Cada barra é um `<button>` de verdade, e passar por 48 paradas de `Tab` seria hostil, então o grupo usa o padrão de **roving tabindex**: só a barra selecionada entra na ordem de tabulação, as setas percorrem o resto, `Home`/`End` vão para as pontas e `PageUp`/`PageDown` pulam de 6 em 6 — o mesmo comportamento de um grupo de rádio. Seis testes cobrem essa navegação.
 
-### O gráfico tem equivalente textual
+### O gráfico também é uma tabela, escondida
 
-O SVG que o Recharts gera é invisível para leitor de tela. A mesma série vai numa `<table>` escondida visualmente (`clip-path`, não `display: none`, senão sai da árvore de acessibilidade também). É a alternativa não-visual que o WCAG pede, e custa dez linhas.
+O SVG que o Recharts desenha é invisível para quem usa leitor de tela. Por isso a mesma série também vai para uma `<table>` escondida visualmente com `clip-path` (não `display: none`, que tiraria o conteúdo da árvore de acessibilidade também). É a alternativa não-visual que o WCAG pede, e não custa mais que dez linhas de código.
 
 ### A tabela horária é virtualizada
 
-Com `@tanstack/react-virtual`, o DOM fica em ~12 linhas independente do tamanho da série. Como as linhas são posicionadas em `absolute`, a `<table>` semântica não funciona — então os papéis ARIA de grid são declarados explicitamente, com `aria-rowcount` informando o total real, que é o número que o leitor de tela deve anunciar.
+Com `@tanstack/react-virtual`, o DOM fica em torno de 12 linhas o tempo todo, não importa quantas horas a série tenha. O efeito colateral é que, como as linhas ficam posicionadas em `absolute`, uma `<table>` semântica deixa de funcionar — então os papéis ARIA de grid (`role="grid"`, `"row"`, `"gridcell"`) são declarados na mão, com `aria-rowcount` informando o total real de linhas, que é o número que o leitor de tela precisa anunciar.
 
-### O gráfico é carregado sob demanda
+### O gráfico só baixa quando alguém rola até ele
 
-O Recharts respondia por 63% do bundle. Um `React.lazy` tirou 385 KB do caminho crítico:
+O Recharts sozinho respondia por 63% do bundle inicial. Colocá-lo atrás de um `React.lazy` tirou 385 KB do caminho crítico:
 
 |                | Antes                | Depois                  |
 | -------------- | -------------------- | ----------------------- |
 | Bundle inicial | 611 KB (178 KB gzip) | **227 KB (72 KB gzip)** |
 | Gráfico        | no bundle inicial    | sob demanda             |
 
-O número grande e a faixa de 48 horas — o que a pessoa veio ver — aparecem antes de o gráfico começar a baixar.
+Assim o número grande e a faixa de 48 horas — o que a pessoa realmente veio ver — aparecem antes de o gráfico sequer começar a baixar.
 
-### A cidade vive na URL
+### O ranking nacional é o único dado que passa por um servidor
 
-`?cidade=curitiba`. O link é compartilhável e o botão voltar do navegador funciona como o usuário espera, sem trazer um roteador para uma aplicação de uma tela só.
+Como já falei acima, todo o resto desta tela é buscado direto do cliente para a Open-Meteo, de propósito, para o projeto não depender de infraestrutura própria. O ranking é a exceção que realmente precisa de uma: comparar 27 capitais ao vivo significaria refazer 27 requisições a cada visita, o tempo todo.
 
-### O ranking nacional é o único dado que passa pelo servidor
+A solução foi um cron diário ([`api/cron/snapshot.ts`](api/cron/snapshot.ts)) que passa pelas 27 capitais, agrega uma leitura de cada e grava numa tabela Postgres (`daily_snapshots`, schema em [`api/_lib/schema.ts`](api/_lib/schema.ts)). Daí em diante, `/api/ranking` só lê o snapshot mais recente de cada cidade, e `/api/history/:cityId` lê os últimos N dias da mesma tabela para alimentar o gráfico de tendência de 30 dias — a mesma coleta paga por dois recursos diferentes.
 
-Tudo o resto desta tela é buscado direto do cliente na Open-Meteo — de propósito, para não depender de infraestrutura própria. Mas comparar as 27 capitais ao vivo custaria 27 requisições paralelas por visitante, refeitas a cada carregamento. Isso genuinamente precisa de servidor.
+Os handlers reaproveitam `fetchAirQuality`, `aggregateAqi` e `CAPITALS` do próprio frontend em vez de duplicar a regra de negócio em outro lugar, e são escritos como funções Node puras `(req, res)`, sem depender de nada específico do runtime do Vercel. Isso é o que permite o mesmo arquivo rodar idêntico em produção e no middleware de desenvolvimento do Vite ([`vite.api-plugin.ts`](vite.api-plugin.ts)), que já serve `/api/*` durante `npm run dev` — sem precisar instalar nem rodar `vercel dev`.
 
-A solução é um cron diário ([`api/cron/snapshot.ts`](api/cron/snapshot.ts)) que busca e agrega uma leitura por capital numa tabela Postgres (`daily_snapshots`, schema em [`api/_lib/schema.ts`](api/_lib/schema.ts)). `/api/ranking` só lê o snapshot mais recente de cada cidade; `/api/history/:cityId` lê os últimos N dias da mesma tabela para o gráfico de tendência de 30 dias — a mesma coleta paga por dois recursos.
+E sem nenhuma `DATABASE_URL` configurada, o banco por trás disso tudo é o [PGlite](https://pglite.dev/): um Postgres de verdade compilado para WASM, que roda embutido sem instalar nada. É o que mantém válida a promessa de "clonar e rodar funciona sem configurar nada" mesmo tendo um banco de dados no meio do caminho — e é contra essa mesma instância embutida que os testes de integração dos três endpoints rodam, não contra um mock de banco.
 
-Os handlers reaproveitam `fetchAirQuality`/`aggregateAqi`/`CAPITALS` do frontend em vez de duplicar a regra de negócio, e são funções Node puras `(req, res)` sem depender de augmentações específicas do Vercel (`req.query` etc.) — o mesmo arquivo roda idêntico em produção e no middleware de dev do Vite ([`vite.api-plugin.ts`](vite.api-plugin.ts)), que monta `/api/*` durante `npm run dev` sem precisar de `vercel dev`.
+### Dá para instalar e funciona offline desde a primeira visita
 
-Sem `DATABASE_URL`, o banco é [PGlite](https://pglite.dev/) — Postgres real compilado para WASM, embutido, sem instalar nada. Isso mantém a promessa de "clonar e rodar funciona sem configurar nada" mesmo com um banco no meio, e os testes de integração dos três endpoints rodam contra essa mesma instância embutida — não contra mocks de banco.
+O IndexedDB cuida dos _dados_, mas até pouco tempo atrás nada garantia que o _app_ em si — o JS, o CSS, o HTML — estivesse no cache do navegador. Offline na primeira visita, ou depois de o navegador limpar o cache HTTP por conta própria, era tela branca.
 
-### App shell instalável via service worker
-
-O cache em IndexedDB cobre os _dados_; sem service worker, o _app_ em si (JS/CSS/HTML) não tinha garantia de estar no cache do navegador — offline na primeira visita, ou depois de o navegador limpar o cache HTTP, era tela branca.
-
-O `vite-plugin-pwa` resolve isso, mas com escopo deliberadamente estreito: só precacheia o app shell. Não cacheia a Open-Meteo nem a API própria — `src/lib/db.ts` já é dono dessa responsabilidade (cache com banner de "dados salvos há X min"), e duplicar no service worker criaria duas fontes de verdade para "dado antigo".
+Um service worker via `vite-plugin-pwa` resolve isso, mas com escopo propositalmente estreito: ele só guarda o app shell. Não entra em cache nem a Open-Meteo nem a API própria — essa responsabilidade já é do `src/lib/db.ts`, com seu banner de "dados salvos há X min", e duplicá-la no service worker só criaria duas fontes de verdade diferentes para "dado antigo".
 
 ## Acessibilidade
 
@@ -89,18 +85,18 @@ O `vite-plugin-pwa` resolve isso, mas com escopo deliberadamente estreito: só p
 
 ## Stack
 
-| Camada      | Escolha                        | Motivo                                              |
-| ----------- | ------------------------------ | --------------------------------------------------- |
-| Build       | Vite 5                         | HMR instantâneo, build via Rollup                   |
-| Tipos       | TypeScript strict              | Com `noUncheckedIndexedAccess`                      |
-| Dados       | TanStack Query 5               | Cache, deduplicação e estados de requisição         |
-| Cache       | idb                            | Wrapper de IndexedDB com tipos                      |
-| Lista       | TanStack Virtual 3             | Virtualização                                       |
-| Gráfico     | Recharts 2                     | Carregado sob demanda                               |
-| Backend     | Drizzle ORM + Postgres         | Ranking nacional e histórico de 30 dias             |
-| Banco local | PGlite                         | Postgres embutido (WASM), sem Docker para dev/teste |
-| PWA         | vite-plugin-pwa                | App shell instalável, offline desde a 1ª visita     |
-| Testes      | Vitest + Testing Library + MSW | Rede mockada na camada HTTP, não no `fetch`         |
+| Camada      | Escolha                        | Motivo                                                |
+| ----------- | ------------------------------ | ----------------------------------------------------- |
+| Build       | Vite 5                         | HMR instantâneo, build via Rollup                     |
+| Tipos       | TypeScript strict              | Com `noUncheckedIndexedAccess`                        |
+| Dados       | TanStack Query 5               | Cache, deduplicação e estados de requisição           |
+| Cache       | idb                            | Wrapper de IndexedDB com tipos                        |
+| Lista       | TanStack Virtual 3             | Virtualização                                         |
+| Gráfico     | Recharts 2                     | Carregado sob demanda                                 |
+| Backend     | Drizzle ORM + Postgres         | Ranking nacional e histórico de 30 dias               |
+| Banco local | PGlite                         | Postgres embutido (WASM), sem Docker para dev e teste |
+| PWA         | vite-plugin-pwa                | App shell instalável, offline desde a 1ª visita       |
+| Testes      | Vitest + Testing Library + MSW | Rede mockada na camada HTTP, não no `fetch`           |
 
 A API ([Open-Meteo](https://open-meteo.com/)) é aberta e não exige chave — clonar e rodar funciona sem configurar nada.
 
@@ -111,7 +107,7 @@ npm install
 npm run dev
 ```
 
-Sem nenhuma variável de ambiente, `/api/ranking` e `/api/history/:cityId` já funcionam contra um Postgres embutido (PGlite) criado automaticamente. Para produção, copie [`.env.example`](.env.example) e aponte `DATABASE_URL` para um Postgres real (Neon, Supabase, Vercel Postgres etc.) e defina `CRON_SECRET`.
+Sem nenhuma variável de ambiente, `/api/ranking` e `/api/history/:cityId` já funcionam contra o Postgres embutido (PGlite), criado automaticamente na primeira vez. Para apontar para produção, copie [`.env.example`](.env.example), defina `DATABASE_URL` com um Postgres real (Neon, Supabase, Vercel Postgres — qualquer um serve) e `CRON_SECRET`.
 
 | Comando                 | O que faz                                     |
 | ----------------------- | --------------------------------------------- |
@@ -128,7 +124,7 @@ Sem nenhuma variável de ambiente, `/api/ranking` e `/api/history/:cityId` já f
 
 ## Testes
 
-66 testes, 96% de cobertura de linhas — a suíte cobre tanto o frontend (jsdom) quanto os endpoints de `api/` (ambiente Node, `environmentMatchGlobs` no `vite.config.ts`).
+66 testes, 96% de cobertura de linhas. A suíte cobre tanto o frontend, em jsdom, quanto os endpoints de `api/`, que rodam em ambiente Node de verdade (configurado via `environmentMatchGlobs` no `vite.config.ts`).
 
 ```
 src/test/aqi.test.ts            11 testes  regra de negócio pura
@@ -139,9 +135,9 @@ api/history/[cityId].test.ts     3 testes  janela de dias, 404 para cidade desco
 api/cron/snapshot.test.ts        3 testes  upsert idempotente, CRON_SECRET
 ```
 
-O MSW intercepta na camada HTTP, então os testes exercitam o `fetch` real do `src/lib/api.ts` — inclusive a construção da URL e a normalização da resposta. Mockar o módulo inteiro esconderia justamente o código que mais quebra. Os testes de `api/` seguem o mesmo princípio para o banco: rodam contra PGlite de verdade, não um mock de query builder.
+O MSW intercepta na camada HTTP, então os testes exercitam o `fetch` de verdade em `src/lib/api.ts` — inclusive a construção da URL e a normalização da resposta. Mockar o módulo inteiro esconderia justamente o código que mais quebra. Os testes de `api/` seguem o mesmo raciocínio para o banco: rodam contra um PGlite de verdade, não um mock de query builder.
 
-A fixture é determinística: o valor de cada hora depende só do índice, então nenhuma asserção depende do relógio.
+A fixture é determinística — o valor de cada hora depende só do índice, nunca do relógio — então nenhuma asserção fica refém do horário em que os testes rodam.
 
 ## CI
 
@@ -150,9 +146,9 @@ O workflow em [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda tipos,
 ## Limitações conhecidas
 
 - Os dados vêm do modelo CAMS por interpolação, não de estações físicas. Para valor regulatório, consulte a rede oficial do seu estado (em São Paulo, a [CETESB](https://cetesb.sp.gov.br/)).
-- O índice usa as faixas da US EPA, não os padrões do CONAMA. A EPA foi escolhida por ser mais documentada e permitir comparação internacional; os limites brasileiros são diferentes.
-- Só PM2,5 e PM10 entram no índice agregado. O³, NO₂, SO₂ e CO aparecem como concentração, mas suas faixas de IQA usam médias de 8 h e 24 h que a série horária não fornece diretamente.
-- O ranking nacional e a tendência de 30 dias vêm de um snapshot diário, não ao vivo — a leitura da hero e da faixa de 48 horas, essas sim, são sempre a mais recente da Open-Meteo.
+- O índice usa as faixas da US EPA, não os padrões do CONAMA. A escolha foi pela EPA por ser mais documentada e permitir comparar com qualquer outra cidade do mundo — mas os limites brasileiros são diferentes.
+- Só PM2,5 e PM10 entram no índice agregado. O³, NO₂, SO₂ e CO aparecem como concentração, mas suas faixas de IQA usam médias de 8h e 24h que a série horária não fornece diretamente.
+- O ranking nacional e a tendência de 30 dias vêm de um snapshot diário, não de uma leitura ao vivo. A leitura em destaque e a faixa de 48 horas, essas sim, são sempre a mais recente da Open-Meteo.
 
 ## Licença
 
