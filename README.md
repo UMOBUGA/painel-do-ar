@@ -109,6 +109,14 @@ npm run dev
 
 Sem nenhuma variável de ambiente, `/api/ranking` e `/api/history/:cityId` já funcionam contra o Postgres embutido (PGlite), criado automaticamente na primeira vez. Para apontar para produção, copie [`.env.example`](.env.example), defina `DATABASE_URL` com um Postgres real (Neon, Supabase, Vercel Postgres — qualquer um serve) e `CRON_SECRET`.
 
+Em produção quem popula a tabela é o cron diário do Vercel (`vercel.json`). Em dev local ninguém dispara esse cron sozinho, então logo após clonar o projeto o ranking nacional aparece vazio — para preencher com uma leitura real das 27 capitais, chame o endpoint do cron manualmente uma vez, com o `npm run dev` já rodando:
+
+```bash
+curl -X POST http://localhost:5173/api/cron/snapshot
+```
+
+(no PowerShell, `Invoke-WebRequest -UseBasicParsing -Method POST http://localhost:5173/api/cron/snapshot`)
+
 | Comando                 | O que faz                                     |
 | ----------------------- | --------------------------------------------- |
 | `npm run dev`           | Servidor de desenvolvimento (inclui `/api/*`) |
