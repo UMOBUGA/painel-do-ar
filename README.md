@@ -4,7 +4,7 @@
 
 **[Ver online](https://painel-do-ar.vercel.app)** · React 18 · TypeScript · Vite
 
-![Cobertura de testes](https://img.shields.io/badge/cobertura-94%25-2e7d5f)
+![Cobertura de testes](https://img.shields.io/badge/cobertura-96%25-2e7d5f)
 
 ---
 
@@ -61,6 +61,22 @@ O número grande e a faixa de 48 horas — o que a pessoa veio ver — aparecem 
 
 `?cidade=curitiba`. O link é compartilhável e o botão voltar do navegador funciona como o usuário espera, sem trazer um roteador para uma aplicação de uma tela só.
 
+### O ranking nacional é o único dado que passa pelo servidor
+
+Tudo o resto desta tela é buscado direto do cliente na Open-Meteo — de propósito, para não depender de infraestrutura própria. Mas comparar as 27 capitais ao vivo custaria 27 requisições paralelas por visitante, refeitas a cada carregamento. Isso genuinamente precisa de servidor.
+
+A solução é um cron diário ([`api/cron/snapshot.ts`](api/cron/snapshot.ts)) que busca e agrega uma leitura por capital numa tabela Postgres (`daily_snapshots`, schema em [`api/_lib/schema.ts`](api/_lib/schema.ts)). `/api/ranking` só lê o snapshot mais recente de cada cidade; `/api/history/:cityId` lê os últimos N dias da mesma tabela para o gráfico de tendência de 30 dias — a mesma coleta paga por dois recursos.
+
+Os handlers reaproveitam `fetchAirQuality`/`aggregateAqi`/`CAPITALS` do frontend em vez de duplicar a regra de negócio, e são funções Node puras `(req, res)` sem depender de augmentações específicas do Vercel (`req.query` etc.) — o mesmo arquivo roda idêntico em produção e no middleware de dev do Vite ([`vite.api-plugin.ts`](vite.api-plugin.ts)), que monta `/api/*` durante `npm run dev` sem precisar de `vercel dev`.
+
+Sem `DATABASE_URL`, o banco é [PGlite](https://pglite.dev/) — Postgres real compilado para WASM, embutido, sem instalar nada. Isso mantém a promessa de "clonar e rodar funciona sem configurar nada" mesmo com um banco no meio, e os testes de integração dos três endpoints rodam contra essa mesma instância embutida — não contra mocks de banco.
+
+### App shell instalável via service worker
+
+O cache em IndexedDB cobre os _dados_; sem service worker, o _app_ em si (JS/CSS/HTML) não tinha garantia de estar no cache do navegador — offline na primeira visita, ou depois de o navegador limpar o cache HTTP, era tela branca.
+
+O `vite-plugin-pwa` resolve isso, mas com escopo deliberadamente estreito: só precacheia o app shell. Não cacheia a Open-Meteo nem a API própria — `src/lib/db.ts` já é dono dessa responsabilidade (cache com banner de "dados salvos há X min"), e duplicar no service worker criaria duas fontes de verdade para "dado antigo".
+
 ## Acessibilidade
 
 - Navegação completa por teclado, com foco sempre visível
@@ -73,15 +89,18 @@ O número grande e a faixa de 48 horas — o que a pessoa veio ver — aparecem 
 
 ## Stack
 
-| Camada  | Escolha                        | Motivo                                      |
-| ------- | ------------------------------ | ------------------------------------------- |
-| Build   | Vite 5                         | HMR instantâneo, build via Rollup           |
-| Tipos   | TypeScript strict              | Com `noUncheckedIndexedAccess`              |
-| Dados   | TanStack Query 5               | Cache, deduplicação e estados de requisição |
-| Cache   | idb                            | Wrapper de IndexedDB com tipos              |
-| Lista   | TanStack Virtual 3             | Virtualização                               |
-| Gráfico | Recharts 2                     | Carregado sob demanda                       |
-| Testes  | Vitest + Testing Library + MSW | Rede mockada na camada HTTP, não no `fetch` |
+| Camada      | Escolha                        | Motivo                                              |
+| ----------- | ------------------------------ | --------------------------------------------------- |
+| Build       | Vite 5                         | HMR instantâneo, build via Rollup                   |
+| Tipos       | TypeScript strict              | Com `noUncheckedIndexedAccess`                      |
+| Dados       | TanStack Query 5               | Cache, deduplicação e estados de requisição         |
+| Cache       | idb                            | Wrapper de IndexedDB com tipos                      |
+| Lista       | TanStack Virtual 3             | Virtualização                                       |
+| Gráfico     | Recharts 2                     | Carregado sob demanda                               |
+| Backend     | Drizzle ORM + Postgres         | Ranking nacional e histórico de 30 dias             |
+| Banco local | PGlite                         | Postgres embutido (WASM), sem Docker para dev/teste |
+| PWA         | vite-plugin-pwa                | App shell instalável, offline desde a 1ª visita     |
+| Testes      | Vitest + Testing Library + MSW | Rede mockada na camada HTTP, não no `fetch`         |
 
 A API ([Open-Meteo](https://open-meteo.com/)) é aberta e não exige chave — clonar e rodar funciona sem configurar nada.
 
@@ -92,26 +111,35 @@ npm install
 npm run dev
 ```
 
-| Comando                 | O que faz                         |
-| ----------------------- | --------------------------------- |
-| `npm run dev`           | Servidor de desenvolvimento       |
-| `npm run build`         | Build de produção em `dist/`      |
-| `npm run typecheck`     | Verificação de tipos              |
-| `npm run lint`          | ESLint                            |
-| `npm test`              | Testes                            |
-| `npm run test:coverage` | Testes com relatório de cobertura |
+Sem nenhuma variável de ambiente, `/api/ranking` e `/api/history/:cityId` já funcionam contra um Postgres embutido (PGlite) criado automaticamente. Para produção, copie [`.env.example`](.env.example) e aponte `DATABASE_URL` para um Postgres real (Neon, Supabase, Vercel Postgres etc.) e defina `CRON_SECRET`.
+
+| Comando                 | O que faz                                     |
+| ----------------------- | --------------------------------------------- |
+| `npm run dev`           | Servidor de desenvolvimento (inclui `/api/*`) |
+| `npm run build`         | Build de produção em `dist/`                  |
+| `npm run typecheck`     | Verificação de tipos                          |
+| `npm run lint`          | ESLint                                        |
+| `npm run format`        | Prettier                                      |
+| `npm test`              | Testes                                        |
+| `npm run test:coverage` | Testes com relatório de cobertura             |
+| `npm run db:generate`   | Gera migração SQL a partir do schema Drizzle  |
+| `npm run db:migrate`    | Aplica migrações num Postgres real            |
+| `npm run db:studio`     | Abre o Drizzle Studio                         |
 
 ## Testes
 
-22 testes, 94% de cobertura de linhas.
+66 testes, 96% de cobertura de linhas — a suíte cobre tanto o frontend (jsdom) quanto os endpoints de `api/` (ambiente Node, `environmentMatchGlobs` no `vite.config.ts`).
 
 ```
-src/test/aqi.test.ts         11 testes  regra de negócio pura
-src/test/HourStrip.test.tsx   6 testes  navegação por teclado
-src/test/App.test.tsx         5 testes  integração, incluindo queda para cache
+src/test/aqi.test.ts            11 testes  regra de negócio pura
+src/test/HourStrip.test.tsx      6 testes  navegação por teclado
+src/test/App.test.tsx            5 testes  integração, incluindo queda para cache
+api/ranking.test.ts              3 testes  ordenação e "só o snapshot mais recente"
+api/history/[cityId].test.ts     3 testes  janela de dias, 404 para cidade desconhecida
+api/cron/snapshot.test.ts        3 testes  upsert idempotente, CRON_SECRET
 ```
 
-O MSW intercepta na camada HTTP, então os testes exercitam o `fetch` real do `src/lib/api.ts` — inclusive a construção da URL e a normalização da resposta. Mockar o módulo inteiro esconderia justamente o código que mais quebra.
+O MSW intercepta na camada HTTP, então os testes exercitam o `fetch` real do `src/lib/api.ts` — inclusive a construção da URL e a normalização da resposta. Mockar o módulo inteiro esconderia justamente o código que mais quebra. Os testes de `api/` seguem o mesmo princípio para o banco: rodam contra PGlite de verdade, não um mock de query builder.
 
 A fixture é determinística: o valor de cada hora depende só do índice, então nenhuma asserção depende do relógio.
 
@@ -124,6 +152,7 @@ O workflow em [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda tipos,
 - Os dados vêm do modelo CAMS por interpolação, não de estações físicas. Para valor regulatório, consulte a rede oficial do seu estado (em São Paulo, a [CETESB](https://cetesb.sp.gov.br/)).
 - O índice usa as faixas da US EPA, não os padrões do CONAMA. A EPA foi escolhida por ser mais documentada e permitir comparação internacional; os limites brasileiros são diferentes.
 - Só PM2,5 e PM10 entram no índice agregado. O³, NO₂, SO₂ e CO aparecem como concentração, mas suas faixas de IQA usam médias de 8 h e 24 h que a série horária não fornece diretamente.
+- O ranking nacional e a tendência de 30 dias vêm de um snapshot diário, não ao vivo — a leitura da hero e da faixa de 48 horas, essas sim, são sempre a mais recente da Open-Meteo.
 
 ## Licença
 
