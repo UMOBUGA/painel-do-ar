@@ -35,4 +35,17 @@ export function buildFixture(hours = 72, pm25 = (i: number) => 5 + (i % 12) * 2)
   }
 }
 
-export const handlers = [http.get(ENDPOINT, () => HttpResponse.json(buildFixture()))]
+/**
+ * Handlers padrão para as rotas próprias de `api/`, com resposta vazia — o
+ * `App.tsx` sempre renderiza as seções de ranking/tendência de 30 dias, então
+ * todo teste que monta `<App />` precisa de uma resposta, mesmo quando o caso
+ * não é sobre esses dados. Testes que querem exercitar o conteúdo real
+ * sobrescrevem com `server.use(...)`.
+ */
+export const handlers = [
+  http.get(ENDPOINT, () => HttpResponse.json(buildFixture())),
+  http.get('/api/ranking', () => HttpResponse.json({ capitals: 0, entries: [] })),
+  http.get('/api/history/:cityId', ({ params }) =>
+    HttpResponse.json({ cityId: params.cityId, name: '', state: '', days: 30, entries: [] }),
+  ),
+]

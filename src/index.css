@@ -452,6 +452,91 @@ h3 {
   color: var(--band, var(--ink-soft));
 }
 
+/* Ranking nacional ----------------------------------------------------- */
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--rule);
+}
+
+.ranking__row {
+  display: grid;
+  grid-template-columns: 1.75rem auto 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.9rem;
+  background: var(--surface);
+  border: 0;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.ranking__row:hover {
+  background: var(--surface-sunken);
+}
+.ranking__row[aria-current='true'] {
+  background: var(--surface-sunken);
+  box-shadow: inset 3px 0 0 var(--focus);
+}
+
+.ranking__position {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.ranking__chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--band, var(--rule));
+}
+
+.ranking__place {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ranking__state {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.ranking__meta {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+@media (min-width: 32rem) {
+  .ranking__meta {
+    display: inline;
+  }
+}
+
+.ranking__aqi {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 2.25rem;
+}
+
 /* Estados ------------------------------------------------------------ */
 
 .banner {

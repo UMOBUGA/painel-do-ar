@@ -1,11 +1,11 @@
-import type { City } from '@/data/capitals'
+import type { City } from '../data/capitals'
 import {
   POLLUTANTS,
   type AirQualitySeries,
   type HourlySample,
   type OpenMeteoResponse,
   type Pollutant,
-} from '@/types/air'
+} from '../types/air'
 
 const ENDPOINT = 'https://air-quality-api.open-meteo.com/v1/air-quality'
 

@@ -5,3 +5,5 @@ coverage
 *.local
 .vite
 *.tsbuildinfo
+.pglite-data
+.env

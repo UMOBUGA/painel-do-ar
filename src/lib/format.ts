@@ -15,6 +15,11 @@ const weekdayHourFormat = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit',
 })
 
+const dayMonthFormat = new Intl.DateTimeFormat('pt-BR', {
+  day: '2-digit',
+  month: '2-digit',
+})
+
 const decimal = new Intl.NumberFormat('pt-BR', {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
@@ -33,6 +38,19 @@ export function parseLocal(iso: string): Date {
 export const formatHour = (iso: string) => hourFormat.format(parseLocal(iso))
 export const formatDayHour = (iso: string) => dayHourFormat.format(parseLocal(iso))
 export const formatWeekdayHour = (iso: string) => weekdayHourFormat.format(parseLocal(iso))
+
+/**
+ * Formata uma data pura "YYYY-MM-DD" (sem hora, como vem de `/api/history` e
+ * `/api/ranking`). `new Date("2026-08-14")` interpretaria isso como meia-noite
+ * UTC e poderia exibir o dia errado dependendo do fuso do navegador — por
+ * isso monta a data a partir dos componentes em vez de deixar o `Date`
+ * parsear a string.
+ */
+export function formatDateOnly(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  if (!year || !month || !day) return isoDate
+  return dayMonthFormat.format(new Date(year, month - 1, day))
+}
 
 export function formatConcentration(value: number | null): string {
   return value == null ? '—' : decimal.format(value)

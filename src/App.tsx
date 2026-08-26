@@ -3,6 +3,7 @@ import { CityPicker } from '@/components/CityPicker'
 import { HourStrip } from '@/components/HourStrip'
 import { HourlyTable } from '@/components/HourlyTable'
 import { Legend } from '@/components/Legend'
+import { NationalRanking } from '@/components/NationalRanking'
 import { PollutantCards } from '@/components/PollutantCards'
 import { findCity } from '@/data/capitals'
 import { useAirQuality } from '@/hooks/useAirQuality'
@@ -21,6 +22,9 @@ import { POLLUTANT_FORMULAS } from '@/types/air'
  */
 const TrendChart = lazy(() =>
   import('@/components/TrendChart').then((m) => ({ default: m.TrendChart })),
+)
+const LongTermTrend = lazy(() =>
+  import('@/components/LongTermTrend').then((m) => ({ default: m.LongTermTrend })),
 )
 
 export default function App() {
@@ -144,12 +148,40 @@ export default function App() {
               </Suspense>
             </section>
 
+            <section className="section" aria-labelledby="tendencia-30d">
+              <h2 id="tendencia-30d" className="section__title">
+                Tendência de 30 dias
+              </h2>
+              <p className="section__note">
+                Média diária do IQA em {city.name}, agregada uma vez por dia — diferente do gráfico
+                acima, que lê a hora a hora dos últimos 2 dias direto da Open-Meteo.
+              </p>
+              <Suspense
+                fallback={
+                  <div className="chart skeleton" role="status" aria-label="Carregando gráfico" />
+                }
+              >
+                <LongTermTrend cityId={cityId} />
+              </Suspense>
+            </section>
+
             <section className="section" aria-labelledby="horas">
               <h2 id="horas" className="section__title">
                 Leituras hora a hora
               </h2>
               <p className="section__note">Da mais recente para a mais antiga.</p>
               <HourlyTable samples={data.samples} />
+            </section>
+
+            <section className="section" aria-labelledby="ranking">
+              <h2 id="ranking" className="section__title">
+                Ranking nacional
+              </h2>
+              <p className="section__note">
+                As 27 capitais ordenadas da pior para a melhor qualidade do ar, atualizado uma vez
+                por dia. Toque numa cidade para trocar a seleção.
+              </p>
+              <NationalRanking selectedCityId={cityId} onSelectCity={setCityId} />
             </section>
           </>
         )}

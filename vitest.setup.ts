@@ -16,12 +16,16 @@ globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObse
 
 // O ResponsiveContainer do Recharts mede o pai antes de desenhar. No jsdom
 // todo elemento tem tamanho zero, o que gera um aviso em toda execução; fixar
-// dimensões deixa a saída dos testes limpa.
-for (const prop of ['offsetWidth', 'offsetHeight'] as const) {
-  Object.defineProperty(HTMLElement.prototype, prop, {
-    configurable: true,
-    value: prop === 'offsetWidth' ? 800 : 300,
-  })
+// dimensões deixa a saída dos testes limpa. Guardado por `typeof` porque este
+// setup também roda para os testes de `api/`, em ambiente Node puro, onde
+// `HTMLElement` nem existe.
+if (typeof HTMLElement !== 'undefined') {
+  for (const prop of ['offsetWidth', 'offsetHeight'] as const) {
+    Object.defineProperty(HTMLElement.prototype, prop, {
+      configurable: true,
+      value: prop === 'offsetWidth' ? 800 : 300,
+    })
+  }
 }
 
 globalThis.matchMedia ??= ((query: string) => ({
